@@ -1,31 +1,26 @@
 #ifndef SMASH_COMMAND_H_
 #define SMASH_COMMAND_H_
 
-#include <signal.h>
 #include <map>
+#include <signal.h>
 
 #define COMMAND_ARGS_MAX_LENGTH (200)
 #define COMMAND_MAX_ARGS (20)
 #define DEFAULT_PROMPT_NAME ("smash")
 
 class Command {
+public:
+    virtual void execute() = 0;
+};
+
+class BuiltInCommand : public Command {
 protected:
     size_t m_args_num;
     char* m_args[COMMAND_MAX_ARGS];
 
 public:
-    Command(const char* cmd_line);
-    virtual ~Command();
-    virtual void execute() = 0;
-};
-
-class BuiltInCommand : public Command {
-public:
-    BuiltInCommand(const char* cmd_line)
-        : Command(cmd_line)
-    {
-    }
-    virtual ~BuiltInCommand(){}
+    BuiltInCommand(const char* cmd_line);
+    virtual ~BuiltInCommand();
 };
 
 class ExternalCommand : public Command {
@@ -34,11 +29,10 @@ private:
 
 public:
     ExternalCommand(const char* cmd_line)
-        : Command(cmd_line)
-        , m_cmd_line(cmd_line)
+        : m_cmd_line(cmd_line)
     {
     }
-    virtual ~ExternalCommand(){}
+    virtual ~ExternalCommand() { }
     void execute() override;
 };
 
@@ -99,6 +93,15 @@ public:
     virtual ~ChangeDirCommand() { }
     void execute() override;
 };
+class JobsCommand : public BuiltInCommand {
+public:
+    JobsCommand(const char* cmd_line)
+        : BuiltInCommand(cmd_line)
+    {
+    }
+    virtual ~JobsCommand() { }
+    void execute() override;
+};
 
 class JobsList;
 class QuitCommand : public BuiltInCommand {
@@ -116,7 +119,7 @@ public:
     pid_t pid;
     time_t time_epoch;
     bool stopped;
-    JobEntry(){}
+    JobEntry() { }
     JobEntry(std::string cmd_line, pid_t pid);
 };
 
@@ -140,14 +143,6 @@ public:
     JobEntry* getLastJob(int* lastJobId);
     JobEntry* getLastStoppedJob(int* jobId);
     // TODO: Add extra methods or modify exisitng ones as needed
-};
-
-class JobsCommand : public BuiltInCommand {
-    // TODO: Add your data members
-public:
-    JobsCommand(const char* cmd_line, JobsList* jobs);
-    virtual ~JobsCommand() { }
-    void execute() override;
 };
 
 class ForegroundCommand : public BuiltInCommand {

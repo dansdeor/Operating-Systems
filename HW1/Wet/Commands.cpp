@@ -98,12 +98,12 @@ char* _cmd_line_copy(const char* cmd_line)
     return copied_cmd_line;
 }
 
-Command::Command(const char* cmd_line)
+BuiltInCommand::BuiltInCommand(const char* cmd_line)
 {
     m_args_num = _parseCommandLine(cmd_line, m_args);
 }
 
-Command::~Command()
+BuiltInCommand::~BuiltInCommand()
 {
     _freeArgs(m_args);
 }
@@ -175,39 +175,28 @@ void ChangeDirCommand::execute()
 void ExternalCommand::execute()
 {
     SmallShell& smash = SmallShell::getInstance();
-    if (_isBackgroundComamnd(m_cmd_line.c_str())) {
-        char* cmd_line = _cmd_line_copy(m_cmd_line.c_str());
-        _removeBackgroundSign(cmd_line);
-        char* args[COMMAND_MAX_ARGS];
-        _parseCommandLine(cmd_line, args);
-        free(cmd_line);
-        size_t pid = fork();
-        if (pid == 0) {
-            // child
-            setpgrp();
-            execvp(args[0], args);
-            perror("smash error: execvp failed");
-        } else if (pid > 0) {
-            // parent
+    char* cmd_line = _cmd_line_copy(m_cmd_line.c_str());
+    _removeBackgroundSign(cmd_line);
+    char* args[COMMAND_MAX_ARGS];
+    _parseCommandLine(cmd_line, args);
+    free(cmd_line);
+    size_t pid = fork();
+    if (pid == 0) {
+        // child
+        setpgrp();
+        execvp(args[0], args);
+        perror("smash error: execv failed");
+    } else if (pid > 0) {
+        // parent
+        if (_isBackgroundComamnd(m_cmd_line.c_str())) {
             smash.jobs_list.addJob(JobEntry(m_cmd_line, pid));
-            _freeArgs(args);
         } else {
-            perror("smash error: fork failed");
-        }
-    } else {
-        size_t pid = fork();
-        if (pid == 0) {
-            // child
-            setpgrp();
-            execvp(m_args[0], m_args);
-            perror("smash error: execvp failed");
-        } else if (pid > 0) {
-            // parent
             smash.foreground_job = JobEntry(m_cmd_line, pid);
             smash.waitpid = pid;
-        } else {
-            perror("smash error: fork failed");
         }
+        _freeArgs(args);
+    } else {
+        perror("smash error: fork failed");
     }
 }
 
