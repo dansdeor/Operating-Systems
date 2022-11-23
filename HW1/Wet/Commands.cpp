@@ -169,6 +169,12 @@ void ChangeDirCommand::execute()
     smash.old_pwd = true;
 }
 
+void JobsCommand::execute()
+{
+    SmallShell& smash = SmallShell::getInstance();
+    smash.jobs_list.printJobsList();
+}
+
 /**
  * ExternalCommand implementation
  */
@@ -186,6 +192,7 @@ void ExternalCommand::execute()
         setpgrp();
         execvp(args[0], args);
         perror("smash error: execv failed");
+        exit(1);
     } else if (pid > 0) {
         // parent
         if (_isBackgroundComamnd(m_cmd_line.c_str())) {
@@ -216,6 +223,8 @@ Command* SmallShell::CreateCommand(const char* cmd_line)
         return new GetCurrDirCommand(cmd_line);
     } else if (firstWord.compare("cd") == 0) {
         return new ChangeDirCommand(cmd_line);
+    } else if (firstWord.compare("jobs") == 0) {
+        return new JobsCommand(cmd_line);
     } else if (firstWord.length()) {
         return new ExternalCommand(cmd_line);
     }
