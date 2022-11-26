@@ -98,6 +98,17 @@ char* _cmd_line_copy(const char* cmd_line)
     return copied_cmd_line;
 }
 
+bool _is_number(const char* arg)
+{
+    if (arg) {
+        for (int i = 0; arg[i]; ++i) {
+            if (arg[i] < '0' || '9' < arg[i])
+                return false;
+        }
+    }
+    return true;
+}
+
 BuiltInCommand::BuiltInCommand(const char* cmd_line)
 {
     m_args_num = _parseCommandLine(cmd_line, m_args);
@@ -172,7 +183,70 @@ void ChangeDirCommand::execute()
 void JobsCommand::execute()
 {
     SmallShell& smash = SmallShell::getInstance();
+    smash.jobs_list.removeFinishedJobs();
     smash.jobs_list.printJobsList();
+}
+
+void ForegroundCommand::execute()
+{
+    if (m_args_num > 2 || (m_args_num == 2 && !_is_number(m_args[1]))) {
+        cerr << "smash error: fg: invalid arguments" << endl;
+        return;
+    }
+
+    SmallShell& smash = SmallShell::getInstance();
+    smash.jobs_list.removeFinishedJobs();
+    if (m_args_num == 1 && !smash.jobs_list.jobsNumber()) {
+        cerr << "smash error: fg: jobs list is empty" << endl;
+        return;
+    }
+    if (m_args_num == 2 && !smash.jobs_list.jobExist(atoi(m_args[1]))) {
+        cerr << "smash error: fg: job-id " << m_args[1] << " does not exist" << endl;
+        return;
+    }
+    int job_id = (m_args_num == 2) ? atoi(m_args[1]) : -1;
+    smash.foreground_job = smash.jobs_list.getJobById(job_id);
+    kill(smash.foreground_job.pid, SIGCONT);
+    smash.jobs_list.removeJobById(job_id);
+    smash.wait_job_pid = smash.foreground_job.pid;
+}
+
+void BackgroundCommand::execute()
+{
+    if (m_args_num > 2 || (m_args_num == 2 && !_is_number(m_args[1]))) {
+        cerr << "smash error: bg: invalid arguments" << endl;
+        return;
+    }
+    SmallShell& smash = SmallShell::getInstance();
+    smash.jobs_list.removeFinishedJobs();
+    if (m_args_num == 1 && !smash.jobs_list.stoppedJobs()) {
+        cerr << "smash error: bg: there is no stopped jobs to resume" << endl;
+        return;
+    }
+    if (m_args_num == 2 && !smash.jobs_list.jobExist(atoi(m_args[1]))) {
+        cerr << "smash error: bg: job-id " << m_args[1] << " does not exist" << endl;
+        return;
+    }
+    int job_id = (m_args_num == 2) ? atoi(m_args[1]) : -1;
+    JobEntry& job = smash.jobs_list.getJobById(job_id);
+    if (!job.stopped) {
+        cerr << "smash error: bg: job-id " << job.job_id << " is already running in the background" << endl;
+        return;
+    }
+    job.stopped = false;
+    cout << job.cmd_line << " : " << job.pid << endl;
+    kill(job.pid, SIGCONT);
+}
+
+void QuitCommand::execute()
+{
+    SmallShell& smash = SmallShell::getInstance();
+    smash.jobs_list.removeFinishedJobs();
+    if (m_args_num == 2 && strcmp(m_args[1], "kill") == 0) {
+        cout << "smash: sending SIGKILL signal to " << smash.jobs_list.jobsNumber() << " jobs:" << endl;
+        smash.jobs_list.killAllJobs();
+    }
+    smash.exit_shell = true;
 }
 
 /**
@@ -180,6 +254,7 @@ void JobsCommand::execute()
  */
 void ExternalCommand::execute()
 {
+    // TODO: add support for special chars
     SmallShell& smash = SmallShell::getInstance();
     char* cmd_line = _cmd_line_copy(m_cmd_line.c_str());
     _removeBackgroundSign(cmd_line);
@@ -192,14 +267,14 @@ void ExternalCommand::execute()
         setpgrp();
         execvp(args[0], args);
         perror("smash error: execv failed");
-        exit(1);
+        exit(errno);
     } else if (pid > 0) {
         // parent
         if (_isBackgroundComamnd(m_cmd_line.c_str())) {
             smash.jobs_list.addJob(JobEntry(m_cmd_line, pid));
         } else {
             smash.foreground_job = JobEntry(m_cmd_line, pid);
-            smash.waitpid = pid;
+            smash.wait_job_pid = pid;
         }
         _freeArgs(args);
     } else {
@@ -225,6 +300,12 @@ Command* SmallShell::CreateCommand(const char* cmd_line)
         return new ChangeDirCommand(cmd_line);
     } else if (firstWord.compare("jobs") == 0) {
         return new JobsCommand(cmd_line);
+    } else if (firstWord.compare("fg") == 0) {
+        return new ForegroundCommand(cmd_line);
+    } else if (firstWord.compare("bg") == 0) {
+        return new BackgroundCommand(cmd_line);
+    } else if (firstWord.compare("quit") == 0) {
+        return new QuitCommand(cmd_line);
     } else if (firstWord.length()) {
         return new ExternalCommand(cmd_line);
     }
@@ -246,34 +327,85 @@ JobEntry::JobEntry(string cmd_line, pid_t pid)
 void JobsList::addJob(const JobEntry& job)
 {
     // gets the job id of the last member in the map and append by 1
-    int job_id = (m_job_list.size() == 0) ? 1 : m_job_list.rbegin()->first + 1;
-    m_job_list[job_id] = job;
-    if (job.job_id == -1) {
+    int job_id = job.job_id;
+    if (job_id == -1) {
+        job_id = (m_job_list.size() == 0) ? 1 : m_job_list.rbegin()->first + 1;
+        m_job_list[job_id] = job;
         m_job_list[job_id].job_id = job_id;
+    } else {
+        m_job_list[job_id] = job;
     }
 }
 
 void ::JobsList::printJobsList()
 {
-    removeFinishedJobs();
     time_t present;
     time(&present);
     for (auto& it : m_job_list) {
         const JobEntry& job = it.second;
         int passed_time = static_cast<int>(difftime(present, job.time_epoch));
-        cout << "[" << job.job_id << "]" << job.cmd_line << " : " << job.pid << " " << passed_time << " secs";
+        cout << "[" << job.job_id << "] " << job.cmd_line << " : " << job.pid << " " << passed_time << " secs";
         cout << ((job.stopped) ? " (stopped)" : "") << endl;
+    }
+}
+
+void JobsList::killAllJobs()
+{
+    for (auto& it : m_job_list) {
+        if (waitpid(it.second.pid, NULL, WNOHANG) != it.second.pid) {
+            cout << it.second.pid << ": " << it.second.cmd_line << endl;
+            kill(it.second.pid, SIGKILL);
+            waitpid(it.second.pid, NULL, 0);
+        }
     }
 }
 
 void JobsList::removeFinishedJobs()
 {
-    int status;
-    for (auto it = m_job_list.begin(); it != m_job_list.end(); it++) {
-        waitpid(it->second.pid, &status, WNOHANG);
-        if (WIFEXITED(status)) {
+    for (auto it = m_job_list.begin(); it != m_job_list.end();) {
+        if (waitpid(it->second.pid, NULL, WNOHANG) == it->second.pid) {
             it = m_job_list.erase(it);
+        } else {
+            ++it;
         }
+    }
+}
+
+bool JobsList::jobExist(int jobs_id)
+{
+    return m_job_list.find(jobs_id) != m_job_list.end();
+}
+
+int JobsList::jobsNumber()
+{
+    return m_job_list.size();
+}
+
+bool JobsList::stoppedJobs()
+{
+    for (auto& it : m_job_list) {
+        if (it.second.stopped)
+            return true;
+    }
+    return false;
+}
+
+JobEntry& JobsList::getJobById(int jobs_id)
+{
+    if (jobs_id == -1) {
+        return m_job_list.rbegin()->second;
+    }
+    return m_job_list[jobs_id];
+}
+
+void JobsList::removeJobById(int job_id)
+{
+    if (job_id == -1) {
+        auto last = m_job_list.end();
+        last--;
+        m_job_list.erase(last);
+    } else {
+        m_job_list.erase(m_job_list.find(job_id));
     }
 }
 
@@ -284,6 +416,22 @@ void SmallShell::executeCommand(const char* cmd_line)
         cmd->execute();
         delete cmd;
     }
+}
+
+void SmallShell::waitForJob()
+{
+    int status;
+    if (wait_job_pid == -1) {
+        return;
+    }
+    waitpid(wait_job_pid, &status, WUNTRACED);
+    if (WIFSTOPPED(status)) {
+        cout << "smash: got ctrl-Z" << endl;
+        cout << "smash: process " << wait_job_pid << " was stopped" << endl;
+        foreground_job.stopped = true;
+        jobs_list.addJob(foreground_job);
+    }
+    wait_job_pid = -1;
 }
 
 void SmallShell::changePromptName(const std::string&& prompt_name)

@@ -93,6 +93,7 @@ public:
     virtual ~ChangeDirCommand() { }
     void execute() override;
 };
+
 class JobsCommand : public BuiltInCommand {
 public:
     JobsCommand(const char* cmd_line)
@@ -103,11 +104,32 @@ public:
     void execute() override;
 };
 
-class JobsList;
-class QuitCommand : public BuiltInCommand {
-    // TODO: Add your data members
+class ForegroundCommand : public BuiltInCommand {
 public:
-    QuitCommand(const char* cmd_line, JobsList* jobs);
+    ForegroundCommand(const char* cmd_line)
+        : BuiltInCommand(cmd_line)
+    {
+    }
+    virtual ~ForegroundCommand() { }
+    void execute() override;
+};
+
+class BackgroundCommand : public BuiltInCommand {
+public:
+    BackgroundCommand(const char* cmd_line)
+        : BuiltInCommand(cmd_line)
+    {
+    }
+    virtual ~BackgroundCommand() { }
+    void execute() override;
+};
+
+class QuitCommand : public BuiltInCommand {
+public:
+    QuitCommand(const char* cmd_line)
+        : BuiltInCommand(cmd_line)
+    {
+    }
     virtual ~QuitCommand() { }
     void execute() override;
 };
@@ -138,27 +160,11 @@ public:
     void printJobsList();
     void killAllJobs();
     void removeFinishedJobs();
-    JobEntry* getJobById(int jobId);
-    void removeJobById(int jobId);
-    JobEntry* getLastJob(int* lastJobId);
-    JobEntry* getLastStoppedJob(int* jobId);
-    // TODO: Add extra methods or modify exisitng ones as needed
-};
-
-class ForegroundCommand : public BuiltInCommand {
-    // TODO: Add your data members
-public:
-    ForegroundCommand(const char* cmd_line, JobsList* jobs);
-    virtual ~ForegroundCommand() { }
-    void execute() override;
-};
-
-class BackgroundCommand : public BuiltInCommand {
-    // TODO: Add your data members
-public:
-    BackgroundCommand(const char* cmd_line, JobsList* jobs);
-    virtual ~BackgroundCommand() { }
-    void execute() override;
+    int jobsNumber();
+    bool stoppedJobs();
+    bool jobExist(int job_id);
+    JobEntry& getJobById(int jobs_id = -1);
+    void removeJobById(int job_id = -1);
 };
 
 class TimeoutCommand : public BuiltInCommand {
@@ -201,9 +207,9 @@ class SmallShell {
 public:
     bool old_pwd;
     std::string old_path;
+    bool exit_shell;
     // if set to -1 the shell don't need to wait
-    volatile sig_atomic_t waitpid;
-    volatile sig_atomic_t job_stopped;
+    volatile sig_atomic_t wait_job_pid;
     JobEntry foreground_job;
     JobsList jobs_list;
 
@@ -212,7 +218,8 @@ private:
     SmallShell()
         : m_prompt_name(DEFAULT_PROMPT_NAME)
         , old_pwd(false)
-        , waitpid(-1)
+        , exit_shell(false)
+        , wait_job_pid(-1)
         , foreground_job()
     {
     }
@@ -228,6 +235,7 @@ public:
     }
     ~SmallShell() { }
     void executeCommand(const char* cmd_line);
+    void waitForJob();
     void changePromptName(const std::string&& prompt_name = DEFAULT_PROMPT_NAME);
     void printPrompt();
 };
