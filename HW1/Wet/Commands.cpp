@@ -259,8 +259,15 @@ void ExternalCommand::execute()
     char* cmd_line = _cmd_line_copy(m_cmd_line.c_str());
     _removeBackgroundSign(cmd_line);
     char* args[COMMAND_MAX_ARGS];
-    _parseCommandLine(cmd_line, args);
-    free(cmd_line);
+    if (m_cmd_line.find('*') == string::npos && m_cmd_line.find('?') == string::npos) {
+        _parseCommandLine(cmd_line, args);
+        free(cmd_line);
+    } else {
+        args[0] = _cmd_line_copy("/bin/bash");
+        args[1] = _cmd_line_copy("-c");
+        args[2] = cmd_line;
+        args[3] = NULL;
+    }
     size_t pid = fork();
     if (pid == 0) {
         // child
