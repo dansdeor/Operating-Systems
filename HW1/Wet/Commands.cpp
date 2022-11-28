@@ -1,4 +1,5 @@
 #include "Commands.h"
+#include <fcntl.h>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -65,6 +66,12 @@ bool _isBackgroundComamnd(const char* cmd_line)
 {
     const string str(cmd_line);
     return str[str.find_last_not_of(WHITESPACE)] == '&';
+}
+
+bool _isRedirectionCommand(const char* cmd_line)
+{
+    const string str(cmd_line);
+    return str.find(">") != string::npos || str.find(">>") != string::npos;
 }
 
 void _removeBackgroundSign(char* cmd_line)
@@ -273,7 +280,7 @@ void ExternalCommand::execute()
         // child
         setpgrp();
         execvp(args[0], args);
-        perror("smash error: execv failed");
+        perror("smash error: execve failed");
         exit(errno);
     } else if (pid > 0) {
         // parent
@@ -313,6 +320,8 @@ Command* SmallShell::CreateCommand(const char* cmd_line)
         return new BackgroundCommand(cmd_line);
     } else if (firstWord.compare("quit") == 0) {
         return new QuitCommand(cmd_line);
+    } else if (_isRedirectionCommand(cmd_line)) {
+        return new RedirectionCommand(cmd_line);
     } else if (firstWord.length()) {
         return new ExternalCommand(cmd_line);
     }
@@ -320,7 +329,59 @@ Command* SmallShell::CreateCommand(const char* cmd_line)
 }
 
 /**
- * JobsList Implementation
+ *  RedirectionCommand Implementation
+ */
+RedirectionCommand::RedirectionCommand(const char* cmd_line)
+    : m_cmd_line(cmd_line)
+{
+    std::string redirection_symbol;
+    if (m_cmd_line.find(">>") != string::npos) {
+        redirection_symbol = ">>";
+        m_append = true;
+    } else {
+        redirection_symbol = ">";
+        m_append = false;
+    }
+    m_file_name = m_cmd_line.substr(m_cmd_line.find(redirection_symbol) + redirection_symbol.length());
+    m_cmd_line = m_cmd_line.substr(0, m_cmd_line.find(redirection_symbol));
+    m_file_name = _trim(m_file_name);
+}
+
+void RedirectionCommand::execute()
+{
+    SmallShell& smash = SmallShell::getInstance();
+    int flags = O_WRONLY | O_CREAT;
+    flags |= (m_append) ? O_APPEND : O_TRUNC;
+
+    int file_fd = open(m_file_name.c_str(), flags, 0666);
+    if (file_fd == -1) {
+        perror("smash error: open failed");
+        return;
+    }
+    int saved_stdout = dup(STDOUT_FILENO);
+    if (saved_stdout == -1) {
+        perror("smash error: dup failed");
+        close(file_fd);
+        return;
+    }
+    if (dup2(file_fd, STDOUT_FILENO) == -1) {
+        perror("smash error: dup2 failed");
+        close(saved_stdout);
+        close(file_fd);
+        return;
+    }
+    smash.executeCommand(m_cmd_line.c_str());
+
+    if (close(file_fd) == -1)
+        perror("smash error: close failed");
+    if (dup2(saved_stdout, STDOUT_FILENO) == -1)
+        perror("smash error: dup2 failed");
+    if (close(saved_stdout) == -1)
+        perror("smash error: close failed");
+}
+
+/**
+ *  JobEntry Implementation
  */
 JobEntry::JobEntry(string cmd_line, pid_t pid)
     : cmd_line(cmd_line)
@@ -331,6 +392,9 @@ JobEntry::JobEntry(string cmd_line, pid_t pid)
     time(&time_epoch);
 }
 
+/**
+ *  JobsList Implementation
+ */
 void JobsList::addJob(const JobEntry& job)
 {
     // gets the job id of the last member in the map and append by 1
@@ -344,7 +408,7 @@ void JobsList::addJob(const JobEntry& job)
     }
 }
 
-void ::JobsList::printJobsList()
+void JobsList::printJobsList()
 {
     time_t present;
     time(&present);

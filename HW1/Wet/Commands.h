@@ -37,7 +37,8 @@ public:
 };
 
 class PipeCommand : public Command {
-    // TODO: Add your data members
+    std::string m_cmd_line;
+
 public:
     PipeCommand(const char* cmd_line);
     virtual ~PipeCommand() { }
@@ -45,7 +46,11 @@ public:
 };
 
 class RedirectionCommand : public Command {
-    // TODO: Add your data members
+private:
+    std::string m_cmd_line;
+    std::string m_file_name;
+    bool m_append;
+
 public:
     explicit RedirectionCommand(const char* cmd_line);
     virtual ~RedirectionCommand() { }
