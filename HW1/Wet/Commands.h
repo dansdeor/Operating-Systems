@@ -36,9 +36,11 @@ public:
     void execute() override;
 };
 
-class PipeCommand : public Command {
-    std::string m_cmd_line;
 
+class PipeCommand : public Command {
+    std::string m_cmd_line1;
+    std::string m_cmd_line2;
+	int m_std_type;
 public:
     PipeCommand(const char* cmd_line);
     virtual ~PipeCommand() { }
@@ -55,8 +57,6 @@ public:
     explicit RedirectionCommand(const char* cmd_line);
     virtual ~RedirectionCommand() { }
     void execute() override;
-    // void prepare() override;
-    // void cleanup() override;
 };
 
 class ChangePromptCommand : public BuiltInCommand {

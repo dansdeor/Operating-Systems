@@ -1,4 +1,5 @@
 #include "Commands.h"
+#include <algorithm>
 #include <fcntl.h>
 #include <iomanip>
 #include <iostream>
@@ -74,6 +75,12 @@ bool _isRedirectionCommand(const char* cmd_line)
     return str.find(">") != string::npos || str.find(">>") != string::npos;
 }
 
+bool _isPipeCommand(const char* cmd_line)
+{
+    const string str(cmd_line);
+    return str.find("|") != string::npos || str.find("|&") != string::npos;
+}
+
 void _removeBackgroundSign(char* cmd_line)
 {
     const string str(cmd_line);
@@ -91,6 +98,11 @@ void _removeBackgroundSign(char* cmd_line)
     cmd_line[idx] = ' ';
     // truncate the command line string up to the last non-space character
     cmd_line[str.find_last_not_of(WHITESPACE, idx) + 1] = 0;
+}
+
+void _removeBackgroundSign(string& cmd_line)
+{
+    cmd_line.erase(std::remove(cmd_line.begin(), cmd_line.end(), '&'), cmd_line.end());
 }
 
 char* _cmd_line_copy(const char* cmd_line)
@@ -322,6 +334,8 @@ Command* SmallShell::CreateCommand(const char* cmd_line)
         return new QuitCommand(cmd_line);
     } else if (_isRedirectionCommand(cmd_line)) {
         return new RedirectionCommand(cmd_line);
+    } else if (_isPipeCommand(cmd_line)) {
+        return new PipeCommand(cmd_line);
     } else if (firstWord.length()) {
         return new ExternalCommand(cmd_line);
     }
@@ -378,6 +392,89 @@ void RedirectionCommand::execute()
         perror("smash error: dup2 failed");
     if (close(saved_stdout) == -1)
         perror("smash error: close failed");
+}
+
+/**
+ * PipeCommand Implementation
+ */
+PipeCommand::PipeCommand(const char* cmd_line)
+    : m_cmd_line1(cmd_line)
+{
+    std::string redirection_symbol;
+    if (m_cmd_line1.find("|&") != string::npos) {
+        redirection_symbol = "|&";
+        m_std_type = STDERR_FILENO;
+    } else {
+        redirection_symbol = "|";
+        m_std_type = STDOUT_FILENO;
+    }
+    m_cmd_line2 = m_cmd_line1.substr(m_cmd_line1.find(redirection_symbol) + redirection_symbol.length());
+    m_cmd_line1 = m_cmd_line1.substr(0, m_cmd_line1.find(redirection_symbol));
+    _removeBackgroundSign(m_cmd_line1);
+    _removeBackgroundSign(m_cmd_line2);
+}
+
+void PipeCommand::execute()
+{
+    int pipe_fd[2];
+    int saved_stdin, saved_stdout;
+    enum {
+        READ,
+        WRITE
+    };
+    if ((saved_stdin = dup(STDIN_FILENO)) == -1) {
+        perror("smash error: dup failed");
+        return;
+    }
+    if ((saved_stdout = dup(m_std_type)) == -1) {
+        perror("smash error: dup failed");
+        close(saved_stdin);
+        return;
+    }
+    if (pipe(pipe_fd) == -1) {
+        perror("smash error: pipe failed");
+        close(saved_stdin);
+        close(saved_stdout);
+        return;
+    }
+    SmallShell& smash = SmallShell::getInstance();
+    Command* command1 = smash.CreateCommand(m_cmd_line1.c_str());
+    Command* command2 = smash.CreateCommand(m_cmd_line2.c_str());
+
+    if (dup2(pipe_fd[WRITE], m_std_type) == -1) {
+        perror("smash error: dup2 failed");
+        exit(errno);
+    } else if (close(pipe_fd[WRITE]) != -1) {
+        if (command1 != nullptr)
+            command1->execute();
+    } else {
+        perror("smash error: close failed");
+        exit(errno);
+    }
+
+    if (dup2(saved_stdout, m_std_type) == -1)
+        perror("smash error: dup2 failed");
+    if (close(saved_stdout) == -1)
+        perror("smash error: close failed");
+
+    if (dup2(pipe_fd[READ], STDIN_FILENO) == -1) {
+        perror("smash error: dup2 failed");
+        exit(errno);
+    } else if (close(pipe_fd[READ]) != -1) {
+        if (command2 != nullptr)
+            command2->execute();
+    } else {
+        perror("smash error: close failed");
+        exit(errno);
+    }
+
+    if (dup2(saved_stdin, STDIN_FILENO) == -1)
+        perror("smash error: dup2 failed");
+    if (close(saved_stdin) == -1)
+        perror("smash error: close failed");
+
+    free(command1);
+    free(command2);
 }
 
 /**
