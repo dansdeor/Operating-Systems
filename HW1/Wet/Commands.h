@@ -7,6 +7,7 @@
 #define COMMAND_ARGS_MAX_LENGTH (200)
 #define COMMAND_MAX_ARGS (20)
 #define DEFAULT_PROMPT_NAME ("smash")
+#define TEMP_FILE ("_temp")
 
 class Command {
 public:
@@ -36,11 +37,11 @@ public:
     void execute() override;
 };
 
-
 class PipeCommand : public Command {
     std::string m_cmd_line1;
     std::string m_cmd_line2;
-	int m_std_type;
+    int m_std_type;
+
 public:
     PipeCommand(const char* cmd_line);
     virtual ~PipeCommand() { }
@@ -139,6 +140,16 @@ public:
     void execute() override;
 };
 
+class FareCommand : public BuiltInCommand {
+public:
+    FareCommand(const char* cmd_line)
+        : BuiltInCommand(cmd_line)
+    {
+    }
+    virtual ~FareCommand() { }
+    void execute() override;
+};
+
 class JobEntry {
 public:
     std::string cmd_line;
@@ -178,15 +189,6 @@ class TimeoutCommand : public BuiltInCommand {
 public:
     explicit TimeoutCommand(const char* cmd_line);
     virtual ~TimeoutCommand() { }
-    void execute() override;
-};
-
-class FareCommand : public BuiltInCommand {
-    /* Optional */
-    // TODO: Add your data members
-public:
-    FareCommand(const char* cmd_line);
-    virtual ~FareCommand() { }
     void execute() override;
 };
 

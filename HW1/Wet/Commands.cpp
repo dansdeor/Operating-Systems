@@ -5,6 +5,7 @@
 #include <iostream>
 #include <sstream>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
@@ -268,6 +269,62 @@ void QuitCommand::execute()
     smash.exit_shell = true;
 }
 
+void FareCommand::execute()
+{
+    size_t bytes_read;
+    int dest_file, src_file;
+    struct stat file_stat;
+
+    if (m_args_num != 4) {
+        cerr << "smash error: fare: invalid arguments" << endl;
+        return;
+    }
+    string tmp_file = m_args[1] + string(TEMP_FILE);
+    if (stat(m_args[1], &file_stat) == -1) {
+        perror("smash error: stat failed");
+        return;
+    }
+    if ((dest_file = open(tmp_file.c_str(), O_WRONLY | O_TRUNC | O_CREAT, file_stat.st_mode)) == -1) {
+        perror("smash error: open failed");
+        return;
+    }
+    if ((src_file = open(m_args[1], O_RDONLY)) == -1) {
+        close(dest_file);
+        perror("smash error: open failed");
+        return;
+    }
+    size_t buf_size = strlen(m_args[2]);
+    char* buffer = (char*)malloc(buf_size);
+    if (buffer == nullptr) {
+        close(src_file);
+        close(dest_file);
+        perror("smash error: malloc failed");
+        return;
+    }
+
+    size_t str_replace_len = strlen(m_args[3]);
+    size_t instances = 0;
+    do {
+        bytes_read = read(src_file, buffer, buf_size);
+        if (bytes_read == buf_size && memcmp(buffer, m_args[2], buf_size) == 0) {
+            write(dest_file, m_args[3], str_replace_len);
+            instances++;
+        } else if (bytes_read > 0) {
+            write(dest_file, &buffer[0], 1);
+            lseek(src_file, 1 - bytes_read, SEEK_CUR);
+        }
+    } while (bytes_read != 0);
+
+    if (close(src_file) == -1 || close(dest_file) == -1) {
+        perror("smash error: close failed");
+        return;
+    }
+    free(buffer);
+    remove(m_args[1]);
+    rename(tmp_file.c_str(), m_args[1]);
+    cout << "replaced " << instances << " instances of the string \"" << m_args[2] << "\"" << endl;
+}
+
 /**
  * ExternalCommand implementation
  */
@@ -332,6 +389,8 @@ Command* SmallShell::CreateCommand(const char* cmd_line)
         return new BackgroundCommand(cmd_line);
     } else if (firstWord.compare("quit") == 0) {
         return new QuitCommand(cmd_line);
+    } else if (firstWord.compare("fare") == 0) {
+        return new FareCommand(cmd_line);
     } else if (_isRedirectionCommand(cmd_line)) {
         return new RedirectionCommand(cmd_line);
     } else if (_isPipeCommand(cmd_line)) {
