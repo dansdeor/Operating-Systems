@@ -12,6 +12,7 @@
 class Command {
 public:
     virtual void execute() = 0;
+    virtual ~Command() { }
 };
 
 class BuiltInCommand : public Command {
@@ -22,19 +23,6 @@ protected:
 public:
     BuiltInCommand(const char* cmd_line);
     virtual ~BuiltInCommand();
-};
-
-class ExternalCommand : public Command {
-private:
-    std::string m_cmd_line;
-
-public:
-    ExternalCommand(const char* cmd_line)
-        : m_cmd_line(cmd_line)
-    {
-    }
-    virtual ~ExternalCommand() { }
-    void execute() override;
 };
 
 class PipeCommand : public Command {
@@ -140,6 +128,17 @@ public:
     void execute() override;
 };
 
+class KillCommand : public BuiltInCommand {
+public:
+    KillCommand(const char* cmd_line)
+        : BuiltInCommand(cmd_line)
+    {
+    }
+
+    virtual ~KillCommand() { }
+    void execute() override;
+};
+
 class FareCommand : public BuiltInCommand {
 public:
     FareCommand(const char* cmd_line)
@@ -150,10 +149,36 @@ public:
     void execute() override;
 };
 
+class SetcoreCommand : public BuiltInCommand {
+public:
+    SetcoreCommand(const char* cmd_line)
+        : BuiltInCommand(cmd_line)
+    {
+    }
+    virtual ~SetcoreCommand() { }
+    void execute() override;
+};
+
+class TimeoutCommand : public BuiltInCommand {
+private:
+    std::string m_cmd_line;
+
+public:
+    explicit TimeoutCommand(const char* cmd_line)
+        : BuiltInCommand(cmd_line)
+        , m_cmd_line(cmd_line)
+    {
+    }
+    virtual ~TimeoutCommand() { }
+    void execute() override;
+};
+
+typedef int job_id_t;
+
 class JobEntry {
 public:
     std::string cmd_line;
-    int job_id;
+    job_id_t job_id;
     pid_t pid;
     time_t time_epoch;
     bool stopped;
@@ -161,9 +186,25 @@ public:
     JobEntry(std::string cmd_line, pid_t pid);
 };
 
+class ExternalCommand : public Command {
+private:
+    std::string m_cmd_line;
+
+public:
+    JobEntry child_job;
+    ExternalCommand(const char* cmd_line)
+        : Command()
+        , m_cmd_line(cmd_line)
+        , child_job()
+    {
+    }
+    virtual ~ExternalCommand() { }
+    void execute() override;
+};
+
 class JobsList {
 private:
-    std::map<int, JobEntry> m_job_list;
+    std::map<job_id_t, JobEntry> m_job_list;
 
 public:
     JobsList()
@@ -178,36 +219,10 @@ public:
     void removeFinishedJobs();
     int jobsNumber();
     bool stoppedJobs();
-    bool jobExist(int job_id);
-    JobEntry& getJobById(int jobs_id = -1);
-    void removeJobById(int job_id = -1);
-};
-
-class TimeoutCommand : public BuiltInCommand {
-    /* Optional */
-    // TODO: Add your data members
-public:
-    explicit TimeoutCommand(const char* cmd_line);
-    virtual ~TimeoutCommand() { }
-    void execute() override;
-};
-
-class SetcoreCommand : public BuiltInCommand {
-    /* Optional */
-    // TODO: Add your data members
-public:
-    SetcoreCommand(const char* cmd_line);
-    virtual ~SetcoreCommand() { }
-    void execute() override;
-};
-
-class KillCommand : public BuiltInCommand {
-    /* Bonus */
-    // TODO: Add your data members
-public:
-    KillCommand(const char* cmd_line, JobsList* jobs);
-    virtual ~KillCommand() { }
-    void execute() override;
+    bool jobExist(job_id_t job_id);
+    JobEntry& getJobById(job_id_t jobs_id = -1);
+    JobEntry& getLastStoppedJob();
+    void removeJobById(job_id_t job_id = -1);
 };
 
 class SmallShell {
@@ -216,18 +231,21 @@ public:
     std::string old_path;
     bool exit_shell;
     // if set to -1 the shell don't need to wait
-    volatile sig_atomic_t wait_job_pid;
+    sig_atomic_t wait_job_pid;
+    sig_atomic_t foreground_job_killed;
     JobEntry foreground_job;
     JobsList jobs_list;
+    std::map<time_t, JobEntry> timeout_list;
 
 private:
     std::string m_prompt_name;
     SmallShell()
-        : m_prompt_name(DEFAULT_PROMPT_NAME)
-        , old_pwd(false)
+        : old_pwd(false)
         , exit_shell(false)
         , wait_job_pid(-1)
+        , foreground_job_killed(false)
         , foreground_job()
+        , m_prompt_name(DEFAULT_PROMPT_NAME)
     {
     }
 
