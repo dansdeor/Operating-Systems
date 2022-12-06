@@ -133,6 +133,19 @@ bool _is_number(const char* arg)
     }
     return true;
 }
+int _WriteWrapper(int fd, char* buffer, size_t size)
+{
+    do {
+        ssize_t bytes_written = write(fd, buffer, size);
+        if (bytes_written == -1) {
+            perror("smash error: close failed");
+            return -1;
+        }
+        buffer += bytes_written;
+        size -= bytes_written;
+    } while (size);
+    return 0;
+}
 
 void Command::CloseFd(int fd)
 {
@@ -328,8 +341,8 @@ void KillCommand::execute()
 
 void FareCommand::execute()
 {
-    size_t bytes_read;
-    int dest_file, src_file;
+    ssize_t bytes_read;
+    int src_file, dest_file;
 
     if (m_args_num != 4) {
         cerr << "smash error: fare: invalid arguments" << endl;
@@ -354,16 +367,29 @@ void FareCommand::execute()
         return;
     }
 
-    size_t str_replace_len = strlen(m_args[3]);
     size_t instances = 0;
+    size_t str_replace_len = strlen(m_args[3]);
     do {
         bytes_read = read(src_file, buffer, buf_size);
-        if (bytes_read == buf_size && memcmp(buffer, m_args[2], buf_size) == 0) {
-            write(dest_file, m_args[3], str_replace_len);
+        if ((size_t)bytes_read == buf_size && memcmp(buffer, m_args[2], buf_size) == 0) {
+            if (_WriteWrapper(dest_file, m_args[3], str_replace_len) == -1) {
+                close(src_file);
+                close(dest_file);
+                return;
+            }
             instances++;
         } else if (bytes_read > 0) {
-            write(dest_file, &buffer[0], 1);
+            if (_WriteWrapper(dest_file, &buffer[0], 1) == -1) {
+                close(src_file);
+                close(dest_file);
+                return;
+            }
             lseek(src_file, 1 - bytes_read, SEEK_CUR);
+        } else if (bytes_read == -1) {
+            perror("smash error: read failed");
+            close(src_file);
+            close(dest_file);
+            return;
         }
     } while (bytes_read != 0);
 
