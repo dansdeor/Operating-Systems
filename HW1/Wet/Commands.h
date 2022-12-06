@@ -12,6 +12,7 @@
 class Command {
 public:
     virtual void execute() = 0;
+    virtual void CloseFd(int fd = -1);
     virtual ~Command() { }
 };
 
@@ -200,6 +201,7 @@ public:
     }
     virtual ~ExternalCommand() { }
     void execute() override;
+    void execute(int close_fd);
 };
 
 class JobsList {

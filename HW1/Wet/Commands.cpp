@@ -134,6 +134,16 @@ bool _is_number(const char* arg)
     return true;
 }
 
+void Command::CloseFd(int fd)
+{
+    if (fd == -1) {
+        return;
+    }
+    if (close(fd) == -1) {
+        perror("smash error: close failed");
+    }
+}
+
 BuiltInCommand::BuiltInCommand(const char* cmd_line)
     : Command()
 {
@@ -433,7 +443,13 @@ void TimeoutCommand::execute()
 /**
  * ExternalCommand implementation
  */
+
 void ExternalCommand::execute()
+{
+    execute(-1);
+}
+
+void ExternalCommand::execute(int close_fd)
 {
     // TODO: add support for special chars
     SmallShell& smash = SmallShell::getInstance();
@@ -453,6 +469,7 @@ void ExternalCommand::execute()
     if (pid == 0) {
         // child
         setpgrp();
+        CloseFd(close_fd);
         execvp(args[0], args);
         perror("smash error: execve failed");
         exit(errno);
@@ -618,13 +635,15 @@ void PipeCommand::execute()
 
     if (dup2(pipe_fd[WRITE], m_std_type) == -1) {
         perror("smash error: dup2 failed");
-        exit(errno);
     } else if (close(pipe_fd[WRITE]) != -1) {
-        if (command1 != nullptr)
-            command1->execute();
+        if (command1 != nullptr) {
+            if (dynamic_cast<ExternalCommand*>(command1) != nullptr)
+                dynamic_cast<ExternalCommand*>(command1)->execute(pipe_fd[READ]);
+            else
+                command1->execute();
+        }
     } else {
         perror("smash error: close failed");
-        exit(errno);
     }
 
     if (dup2(saved_stdout_stderr, m_std_type) == -1)
@@ -634,13 +653,11 @@ void PipeCommand::execute()
 
     if (dup2(pipe_fd[READ], STDIN_FILENO) == -1) {
         perror("smash error: dup2 failed");
-        exit(errno);
     } else if (close(pipe_fd[READ]) != -1) {
         if (command2 != nullptr)
             command2->execute();
     } else {
         perror("smash error: close failed");
-        exit(errno);
     }
 
     if (dup2(saved_stdin, STDIN_FILENO) == -1)
