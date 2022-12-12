@@ -1,0 +1,2 @@
+linux-4.15.18-custom/*
+!linux-4.15.18-custom/init/main.c
