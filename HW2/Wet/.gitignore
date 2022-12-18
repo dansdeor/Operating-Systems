@@ -4,3 +4,4 @@ linux-4.15.18-custom/*
 !linux-4.15.18-custom/arch/x86/entry/syscalls/syscall_64.tbl
 !linux-4.15.18-custom/kernel/hw2.c
 !linux-4.15.18-custom/kernel/Makefile
+!linux-4.15.18-custom/include/linux/sched.h

@@ -406,6 +406,10 @@ static noinline void __ref rest_init(void)
 	 */
 	rcu_read_lock();
 	tsk = find_task_by_pid_ns(pid, &init_pid_ns);
+	/*
+	 * For HW2 we want to make sure init weight is set to 0
+	*/
+	tsk->weight = 0;
 	set_cpus_allowed_ptr(tsk, cpumask_of(smp_processor_id()));
 	rcu_read_unlock();
 
