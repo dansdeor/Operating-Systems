@@ -22,53 +22,48 @@ asmlinkage long sys_get_weight(void)
     return current->weight;
 }
 
-static long get_child_leaf_sum(struct task_struct* root)
+static void get_child_leaf_sum(struct task_struct* root, long* sum)
 {
-    long sum = 0;
     struct task_struct* child;
     struct list_head* children_list;
+    // Check if we in a leaf
     if (list_empty(&root->children)) {
-        return root->weight;
+        *sum += root->weight;
+        return;
     }
     list_for_each(children_list, &root->children)
     {
         child = list_entry(children_list, struct task_struct, sibling);
-        sum += get_child_leaf_sum(child);
+        get_child_leaf_sum(child, sum);
     }
-    return sum;
 }
 
 asmlinkage long sys_get_leaf_children_sum(void)
 {
+    long sum = 0;
     if (list_empty(&current->children)) {
         return -ECHILD;
     }
-    return get_child_leaf_sum(current);
+    get_child_leaf_sum(current, &sum);
+    return sum;
 }
 
-static void heaviest_ancestor_weight(struct task_struct* root, pid_t* max_pid, long* max_weight)
+static long heaviest_ancestor_weight(struct task_struct* current_task)
 {
-    struct task_struct* child;
-    struct list_head* children_list;
-    if (list_empty(&root->children)) {
-        goto skip_iteration;
+    pid_t max_pid = 1;
+    long max_weight = -1;
+    // If equal to 1 we got to the first process on the system: Init process
+    while (current_task->pid != 1) {
+        if (current_task->weight > max_weight) {
+            max_weight = current_task->weight;
+            max_pid = current_task->pid;
+        }
+        current_task = current_task->real_parent;
     }
-    list_for_each(children_list, &root->children)
-    {
-        child = list_entry(children_list, struct task_struct, sibling);
-        heaviest_ancestor_weight(child, max_pid, max_weight);
-    }
-skip_iteration:
-    if (root->weight > *max_weight) {
-        *max_weight = root->weight;
-        *max_pid = root->pid;
-    }
+    return max_pid;
 }
 
 asmlinkage long sys_get_heaviest_ancestor(void)
 {
-    pid_t max_pid;
-    long max_weight = -1;
-    heaviest_ancestor_weight(current, &max_pid, &max_weight);
-    return max_pid;
+    return heaviest_ancestor_weight(current);
 }
