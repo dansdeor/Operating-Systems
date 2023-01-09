@@ -2,15 +2,6 @@
 #include "segel.h"
 #include <pthread.h>
 
-//
-// server.c: A very, very simple web server
-//
-// To run:
-//  ./server <portnum (above 2000)>
-//
-// Repeatedly handles HTTP requests sent to this port number.
-// Most of the work is done within routines written in request.c
-
 typedef enum schedalg {
     BLOCK,
     DROP_TAIL,
@@ -142,13 +133,8 @@ void random_drop_connections(cyclic_queue_t* queue, size_t* elements_num)
 {
     session_t session;
     srand(time(NULL));
-    if (*elements_num == 1) {
-        remove_queue_element(queue, &session, HEAD);
-        Close(session.connection_fd);
-        *elements_num = 0;
-        return;
-    }
-    size_t remove_elements_num = *elements_num / 2;
+
+    size_t remove_elements_num = (*elements_num % 2 == 0) ? (*elements_num / 2) : (*elements_num / 2) + 1;
     *elements_num -= remove_elements_num;
     for (size_t i = 0; i < remove_elements_num; i++) {
         if (rand() % 2 == HEAD) {
@@ -184,6 +170,8 @@ void add_request(jobs_manager_t* jobs_manager, session_t session)
                 goto unlock_and_exit;
             }
             random_drop_connections(&jobs_manager->waiting_jobs, &jobs_manager->waiting_count);
+            break;
+        default:
             break;
         }
     }

@@ -30,9 +30,6 @@ void requestError(int fd, char* cause, char* errnum, char* shortmsg, char* longm
     printf("%s", buf);
 
     sprintf(buf, "Content-Length: %lu\r\n", strlen(body));
-    Rio_writen(fd, buf, strlen(buf));
-    printf("%s", buf);
-
     sprintf(buf, "%sStat-Req-Arrival:: %ld.%06ld\r\n", buf, request_stat->arrival_time.tv_sec, request_stat->arrival_time.tv_usec);
     sprintf(buf, "%sStat-Req-Dispatch:: %ld.%06ld\r\n", buf, request_stat->dispatch_time.tv_sec, request_stat->dispatch_time.tv_usec);
     sprintf(buf, "%sStat-Thread-Id:: %ld\r\n", buf, request_stat->thread_id);
@@ -124,17 +121,18 @@ void requestServeDynamic(int fd, char* filename, char* cgiargs, request_stat_t* 
     sprintf(buf, "%sStat-Thread-Id:: %ld\r\n", buf, request_stat->thread_id);
     sprintf(buf, "%sStat-Thread-Count:: %ld\r\n", buf, request_stat->total_count);
     sprintf(buf, "%sStat-Thread-Static:: %ld\r\n", buf, request_stat->static_count);
-    sprintf(buf, "%sStat-Thread-Dynamic:: %ld\r\n\r\n", buf, request_stat->dynamic_count);
+    sprintf(buf, "%sStat-Thread-Dynamic:: %ld\r\n", buf, request_stat->dynamic_count);
     Rio_writen(fd, buf, strlen(buf));
 
-    if (Fork() == 0) {
+    pid_t pid = Fork();
+    if (pid == 0) {
         /* Child process */
         Setenv("QUERY_STRING", cgiargs, 1);
         /* When the CGI process writes to stdout, it will instead go to the socket */
         Dup2(fd, STDOUT_FILENO);
         Execve(filename, emptylist, environ);
     }
-    Wait(NULL);
+    waitpid(pid, NULL, 0);
 }
 
 void requestServeStatic(int fd, char* filename, int filesize, request_stat_t* request_stat)
