@@ -129,32 +129,63 @@ retval_e init_jobs_manager(jobs_manager_t* jobs_manager, size_t max_accepted_cou
     return SUCCESS;
 }
 
+// using Fisher-Yates shuffle algorithm
 void random_drop_connections(cyclic_queue_t* queue, size_t* elements_num)
 {
-    session_t session;
+    session_t temp_session;
     srand(time(NULL));
-
+    /*
+    size_t keep_elements_num = *elements_num / 2;
+    for (size_t i = 0; i < keep_elements_num; i++) {
+        size_t picked_index = rand() % (*elements_num - i);
+        temp_session = queue->elements_array[(queue->head + i) % queue->size];
+        queue->elements_array[(queue->head + i) % queue->size] = queue->elements_array[(queue->head + picked_index) % queue->size];
+        queue->elements_array[(queue->head + picked_index) % queue->size] = temp_session;
+    }
+    
+    for (size_t i = keep_elements_num; i < *elements_num; i++) {
+        remove_queue_element(queue, &temp_session, TAIL);
+        Close(temp_session.connection_fd);
+    }
+    
+    for (size_t i = keep_elements_num; i < *elements_num; i++) {
+        Close(queue->elements_array[(queue->head + i) % queue->size].connection_fd);
+        if (queue->head == queue->tail) {
+            queue->head = -1;
+            queue->tail = -1;
+        } else {
+            queue->tail = (queue->tail == 0) ? queue->size - 1 : queue->tail - 1;
+        }
+    }
+    *elements_num = keep_elements_num;
+    */
     size_t remove_elements_num = (*elements_num % 2 == 0) ? (*elements_num / 2) : (*elements_num / 2) + 1;
     *elements_num -= remove_elements_num;
     for (size_t i = 0; i < remove_elements_num; i++) {
         if (rand() % 2 == HEAD) {
-            remove_queue_element(queue, &session, HEAD);
+            remove_queue_element(queue, &temp_session, HEAD);
         } else {
-            remove_queue_element(queue, &session, TAIL);
+            remove_queue_element(queue, &temp_session, TAIL);
         }
-        Close(session.connection_fd);
+        Close(temp_session.connection_fd);
     }
+    /**/
 }
 
 void add_request(jobs_manager_t* jobs_manager, session_t session)
 {
     session_t head_session;
     pthread_mutex_lock(&jobs_manager->mutex);
-    while (jobs_manager->waiting_count + jobs_manager->running_count == jobs_manager->max_accepted_count) {
-        switch (jobs_manager->schedalg) {
-        case BLOCK:
+    if (jobs_manager->schedalg == BLOCK) {
+        while (jobs_manager->waiting_count + jobs_manager->running_count == jobs_manager->max_accepted_count) {
             pthread_cond_wait(&jobs_manager->produce, &jobs_manager->mutex);
-            break;
+        }
+    } else if (jobs_manager->waiting_count + jobs_manager->running_count == jobs_manager->max_accepted_count) {
+        if (jobs_manager->waiting_count == 0) {
+            Close(session.connection_fd);
+            goto unlock_and_exit;
+        }
+        switch (jobs_manager->schedalg) {
         case DROP_TAIL:
             Close(session.connection_fd);
             goto unlock_and_exit;
@@ -165,10 +196,6 @@ void add_request(jobs_manager_t* jobs_manager, session_t session)
             jobs_manager->waiting_count--;
             break;
         case DROP_RANDOM:
-            if (jobs_manager->waiting_count == 0) {
-                Close(session.connection_fd);
-                goto unlock_and_exit;
-            }
             random_drop_connections(&jobs_manager->waiting_jobs, &jobs_manager->waiting_count);
             break;
         default:
