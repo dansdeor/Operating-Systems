@@ -1,7 +1,8 @@
+#include <cstdint>
 #include <cstring>
 #include <unistd.h>
 
-#define SIZE_LIMIT (100000000)
+#define SIZE_LIMIT (1e8)
 
 typedef struct {
     size_t size;
@@ -38,24 +39,50 @@ size_t _size_meta_data()
     return sizeof(head_metadata_t);
 }
 
-// returns the first fit free block if not found returns the last searched block
-static head_metadata_t* _find_free_block(head_metadata_t* head, size_t block_size)
+void* _sbrk(intptr_t delta)
 {
-    head_metadata_t* last_searched;
-    head_metadata_t* program_break = (head_metadata_t*)sbrk(0);
-    ;
-    for (last_searched = head; last_searched + last_searched->size < program_break; last_searched += last_searched->size) {
+    static void* program_break = sbrk(0);
+    if (delta == 0) {
+        return program_break;
+    }
+    void* sbrk_break = sbrk(0);
+    if (sbrk_break == (void*)(-1)) {
+        return sbrk_break;
+    }
+    if ((intptr_t)program_break + delta > (intptr_t)sbrk_break) {
+        sbrk_break = sbrk((intptr_t)program_break + delta - (intptr_t)sbrk_break);
+        if (sbrk_break == (void*)(-1)) {
+            return sbrk_break;
+        }
+    }
+    void* prev_break = program_break;
+    program_break = (void*)((intptr_t)program_break + delta);
+    return prev_break;
+}
+
+head_metadata_t* global_head = nullptr;
+
+// returns the first fit free block if not found returns the last searched block
+static head_metadata_t* _find_free_block(size_t block_size)
+{
+    head_metadata_t* last_searched = global_head;
+    void* program_break = _sbrk(0);
+    if (program_break == (void*)(-1) || last_searched == nullptr) {
+        return nullptr;
+    }
+    while ((void*)((uint8_t*)last_searched + last_searched->size) < program_break) {
         if (last_searched->is_free && last_searched->size >= block_size) {
             return last_searched;
         }
+        last_searched = (head_metadata_t*)((uint8_t*)last_searched + last_searched->size);
     }
     return last_searched;
 }
 
 static head_metadata_t* _init_alloc_block(head_metadata_t* block, size_t block_size)
 {
-    if (sbrk(block_size) == (void*)(-1)) {
-        return NULL;
+    if (_sbrk(block_size) == (void*)(-1)) {
+        return nullptr;
     }
     block->size = block_size;
     block->is_free = false;
@@ -64,40 +91,43 @@ static head_metadata_t* _init_alloc_block(head_metadata_t* block, size_t block_s
 
 void* smalloc(size_t size)
 {
-    static void* global_head = sbrk(0);
     head_metadata_t* last_block;
-    size_t block_size = size + _size_meta_data();
-    if (size == 0 || block_size > SIZE_LIMIT) {
-        return NULL;
+    if (size == 0 || size > SIZE_LIMIT) {
+        return nullptr;
     }
-    if (_num_allocated_blocks() != 0) {
-        head_metadata_t* last_searched = _find_free_block((head_metadata_t*)global_head, block_size);
+    size_t block_size = size + _size_meta_data();
+    if (global_head != nullptr) {
+        head_metadata_t* last_searched = _find_free_block(block_size);
+        if (last_searched == nullptr) {
+            return nullptr;
+        }
         if (last_searched->is_free) {
             last_searched->is_free = false;
             free_blocks_num--;
             free_bytes_num -= last_searched->size - _size_meta_data();
-            return ((void*)last_searched + sizeof(head_metadata_t));
+            return (void*)((uint8_t*)last_searched + sizeof(head_metadata_t));
         }
         // last search block is not free
-        last_block = last_searched + last_searched->size;
+        last_block = (head_metadata_t*)((uint8_t*)last_searched + last_searched->size);
         last_block = _init_alloc_block(last_block, block_size);
     } else {
-        last_block = (head_metadata_t*)global_head;
+        global_head = (head_metadata_t*)_sbrk(0);
+        last_block = global_head;
         last_block = _init_alloc_block(last_block, block_size);
     }
-    if (last_block == NULL) {
-        return NULL;
+    if (last_block == nullptr) {
+        return nullptr;
     }
     allocated_blocks_num++;
     allocated_bytes_num += size;
-    return ((void*)last_block + sizeof(head_metadata_t));
+    return (void*)((uint8_t*)last_block + sizeof(head_metadata_t));
 }
 
 void* scalloc(size_t num, size_t size)
 {
     void* alloc = smalloc(num * size);
-    if (alloc == NULL) {
-        return NULL;
+    if (alloc == nullptr) {
+        return nullptr;
     }
     memset(alloc, 0, num * size);
     return alloc;
@@ -105,10 +135,10 @@ void* scalloc(size_t num, size_t size)
 
 void sfree(void* p)
 {
-    if (p == NULL) {
+    if (p == nullptr) {
         return;
     }
-    head_metadata_t* block_to_free = (head_metadata_t*)((void*)p - sizeof(head_metadata_t));
+    head_metadata_t* block_to_free = (head_metadata_t*)((uint8_t*)p - sizeof(head_metadata_t));
     if (block_to_free->is_free) {
         return;
     }
@@ -119,20 +149,20 @@ void sfree(void* p)
 
 void* srealloc(void* oldp, size_t size)
 {
-    if (oldp == NULL) {
+    if (oldp == nullptr) {
         return smalloc(size);
     }
-    head_metadata_t* old_block = (head_metadata_t*)((void*)oldp - sizeof(head_metadata_t));
-    size_t block_size = size + _size_meta_data();
-    if (size == 0 || block_size > SIZE_LIMIT) {
-        return NULL;
+    head_metadata_t* old_block = (head_metadata_t*)((uint8_t*)oldp - sizeof(head_metadata_t));
+    if (size == 0 || size > SIZE_LIMIT) {
+        return nullptr;
     }
+    size_t block_size = size + _size_meta_data();
     if (old_block->size >= block_size) {
         return oldp;
     }
     void* newp = smalloc(size);
-    if (newp == NULL) {
-        return NULL;
+    if (newp == nullptr) {
+        return nullptr;
     }
     memmove(newp, oldp, old_block->size - _size_meta_data());
     sfree(oldp);
