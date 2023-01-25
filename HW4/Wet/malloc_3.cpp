@@ -1,14 +1,13 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <stdio.h>
 #include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
 
 #define SIZE_LIMIT (1e8)
 #define SBRK_LIMIT (128 * 1024 + _size_meta_data()) // 128 KB
-#define REDUNDANT_SIZE ((128 + _size_meta_data()))
+#define REDUNDANT_SIZE (128 + _size_meta_data())
 #define IS_REDUNDANT(block, block_size) ((block)->size - (block_size) >= REDUNDANT_SIZE)
 #define TAIL_METADATA(block) ((tail_metadata_t*)((uint8_t*)(block) + ((block)->size - sizeof(tail_metadata_t))))
 #define IS_SBRK_ALLOC(block) ((block)->size < SBRK_LIMIT)
@@ -302,7 +301,7 @@ static head_metadata_t* _sbrk_malloc(size_t block_size)
 // Challenge 4
 static head_metadata_t* _mmap_malloc(size_t block_size)
 {
-    void* mmap_addr = mmap(nullptr, block_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    void* mmap_addr = mmap(NULL, block_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (mmap_addr == (void*)(-1)) {
         return nullptr;
     }
